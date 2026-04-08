@@ -44,3 +44,14 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
     token = create_access_token({"sub": str(user.id)})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/login-token")
+def login_token(user_schema: user.UserCreate = Depends(), db: Session = Depends(get_db)):
+    user = UserRepository.get_by_email(db, user_schema.email)
+
+    if not user or not verify_password(user_schema.password, user.password):
+        raise HTTPException(400, "Credenciais inválidas")
+
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer"}

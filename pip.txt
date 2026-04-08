@@ -1,0 +1,737 @@
+================= 🌳 ESTRUTURA DO PROJETO =================
+📁 api
+    📁 v1
+        📄 admin.py
+        📄 auth.py
+        📄 users.py
+📁 core
+    📄 database.py
+    📄 deps.py
+    📄 security.py
+📁 models
+    📄 user.py
+📁 repositories
+    📄 user_repository.py
+📁 schemas
+    📄 user.py
+📄 .gitignore
+📄 app.db
+📄 exportar_projeto_com_arvore.ps1
+📄 main.py
+📄 projeto_completo.txt
+📄 README.md
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\admin.py
+========================================
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.deps import get_current_admin
+from repositories.user_repository import UserRepository
+from core.security import hash_password
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db), admin = Depends(get_current_admin)):
+    return UserRepository.get_all(db)
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: int,
+                email: str | None = None,
+                password: str | None = None,
+                role: str | None = None,
+                is_active: bool | None = None,
+                db: Session = Depends(get_db),
+                admin = Depends(get_current_admin)):
+
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    if email:
+        user.email = email
+    if password:
+        user.password = hash_password(password)
+    if role:
+        user.role = role
+    if is_active is not None:
+        user.is_active = is_active
+
+    db.commit()
+    return {"message": "Usuário atualizado"}
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int,
+                db: Session = Depends(get_db),
+                admin = Depends(get_current_admin)):
+
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    db.delete(user)
+    db.commit()
+    return {"message": "Usuário deletado"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\auth.py
+========================================
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordRequestForm
+from core.database import get_db
+from core.security import verify_password, create_access_token, hash_password
+from repositories.user_repository import UserRepository
+from models.user import User
+from schemas import user
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+@router.post("/register-form")
+def register_form(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    if UserRepository.get_by_email(db, form.username):
+        raise HTTPException(400, "Email já existe")
+
+    user = User(
+        email=form.username,
+        password=hash_password(form.password),
+    )
+    return UserRepository.create(db, user)
+
+@router.post("/register")
+def register(user: user.UserCreate, db: Session = Depends(get_db)):
+    existing = UserRepository.get_by_email(db, user.email)
+    if existing:
+        raise HTTPException(status_code=400, detail="Usuário já existe")
+
+    new_user =User(
+        email=user.email,
+        password=hash_password(user.password),
+        role="USER" #ADMIN / USER
+    )
+    UserRepository.create(db,new_user)
+
+    return {"message": "Usuário criado com sucesso"}
+
+@router.post("/login")
+def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = UserRepository.get_by_email(db, form.username)
+
+    if not user or not verify_password(form.password, user.password):
+        raise HTTPException(400, "Credenciais inválidas")
+
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/login-token")
+def login_token(user_schema: user.UserCreate = Depends(), db: Session = Depends(get_db)):
+    user = UserRepository.get_by_email(db, user_schema.email)
+
+    if not user or not verify_password(user_schema.password, user.password):
+        raise HTTPException(400, "Credenciais inválidas")
+
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\users.py
+========================================
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.deps import get_current_user
+from core.security import hash_password
+
+router = APIRouter(prefix="/users", tags=["Users"])
+
+@router.get("/me")
+def me(user = Depends(get_current_user)):
+    return user
+
+@router.patch("/me")
+def update_me(email: str | None = None,
+              password: str | None = None,
+              db: Session = Depends(get_db),
+              user = Depends(get_current_user)):
+
+    if email:
+        user.email = email
+    if password:
+        user.password = hash_password(password)
+
+    db.commit()
+    return {"message": "Atualizado com sucesso"}
+
+@router.delete("/me")
+def delete_me(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    db.delete(user)
+    db.commit()
+    return {"message": "Conta deletada"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\database.py
+========================================
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+DATABASE_URL = "sqlite:///./app.db"
+
+engine = create_engine(DATABASE_URL, echo=True)
+SessionLocal = sessionmaker(bind=engine)
+
+class Base(DeclarativeBase):
+    pass
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\deps.py
+========================================
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.security import SECRET_KEY, ALGORITHM
+from repositories.user_repository import UserRepository
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    user_id = int(payload.get("sub"))
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(401, "Usuário inválido")
+    return user
+
+def get_current_admin(user = Depends(get_current_user)):
+    if user.role != "ADMIN":
+        raise HTTPException(403, "Acesso apenas ADMIN")
+    return user
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\security.py
+========================================
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import jwt
+
+SECRET_KEY = "0G7fdF4ORMat7AYdsq0sIQOEarDLlkgx"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+def verify_password(password: str, hashed: str):
+    return pwd_context.verify(password, hashed)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\models\user.py
+========================================
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, Boolean
+from core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, default="USER")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\repositories\user_repository.py
+========================================
+from sqlalchemy.orm import Session
+from models.user import User
+
+class UserRepository:
+
+    @staticmethod
+    def get_all(db: Session):
+        return db.query(User).all()
+
+    @staticmethod
+    def get_by_id(db: Session, user_id: int):
+        return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def get_by_email(db: Session, email: str):
+        return db.query(User).filter(User.email == email).first()
+
+    @staticmethod
+    def create(db: Session, user: User):
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    @staticmethod
+    def delete(db: Session, user: User):
+        db.delete(user)
+        db.commit()
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\schemas\user.py
+========================================
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    email: EmailStr | None = None
+    password: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+    
+    class Config:
+        from_attributes = True
+
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    role: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\main.py
+========================================
+from fastapi import FastAPI
+from core.database import engine, Base
+from api.v1 import auth, users, admin
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\projeto_completo.txt
+========================================
+================= 🌳 ESTRUTURA DO PROJETO =================
+📁 api
+    📁 v1
+        📄 admin.py
+        📄 auth.py
+        📄 users.py
+📁 core
+    📄 database.py
+    📄 deps.py
+    📄 security.py
+📁 models
+    📄 user.py
+📁 repositories
+    📄 user_repository.py
+📁 schemas
+    📄 user.py
+📄 .gitignore
+📄 app.db
+📄 exportar_projeto_com_arvore.ps1
+📄 main.py
+📄 projeto_completo.txt
+📄 README.md
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\admin.py
+========================================
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.deps import get_current_admin
+from repositories.user_repository import UserRepository
+from core.security import hash_password
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db), admin = Depends(get_current_admin)):
+    return UserRepository.get_all(db)
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: int,
+                email: str | None = None,
+                password: str | None = None,
+                role: str | None = None,
+                is_active: bool | None = None,
+                db: Session = Depends(get_db),
+                admin = Depends(get_current_admin)):
+
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    if email:
+        user.email = email
+    if password:
+        user.password = hash_password(password)
+    if role:
+        user.role = role
+    if is_active is not None:
+        user.is_active = is_active
+
+    db.commit()
+    return {"message": "Usuário atualizado"}
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int,
+                db: Session = Depends(get_db),
+                admin = Depends(get_current_admin)):
+
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    db.delete(user)
+    db.commit()
+    return {"message": "Usuário deletado"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\auth.py
+========================================
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordRequestForm
+from core.database import get_db
+from core.security import verify_password, create_access_token, hash_password
+from repositories.user_repository import UserRepository
+from models.user import User
+from schemas import user
+
+router = APIRouter(prefix="/auth", tags=["Auth"])
+
+@router.post("/register-form")
+def register_form(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    if UserRepository.get_by_email(db, form.username):
+        raise HTTPException(400, "Email já existe")
+
+    user = User(
+        email=form.username,
+        password=hash_password(form.password),
+    )
+    return UserRepository.create(db, user)
+
+@router.post("/register")
+def register(user: user.UserCreate, db: Session = Depends(get_db)):
+    existing = UserRepository.get_by_email(db, user.email)
+    if existing:
+        raise HTTPException(status_code=400, detail="Usuário já existe")
+
+    new_user =User(
+        email=user.email,
+        password=hash_password(user.password),
+        role="USER" #ADMIN / USER
+    )
+    UserRepository.create(db,new_user)
+
+    return {"message": "Usuário criado com sucesso"}
+
+@router.post("/login")
+def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = UserRepository.get_by_email(db, form.username)
+
+    if not user or not verify_password(form.password, user.password):
+        raise HTTPException(400, "Credenciais inválidas")
+
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/login-token")
+def login_token(user_schema: user.UserCreate = Depends(), db: Session = Depends(get_db)):
+    user = UserRepository.get_by_email(db, user_schema.email)
+
+    if not user or not verify_password(user_schema.password, user.password):
+        raise HTTPException(400, "Credenciais inválidas")
+
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\api\v1\users.py
+========================================
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.deps import get_current_user
+from core.security import hash_password
+
+router = APIRouter(prefix="/users", tags=["Users"])
+
+@router.get("/me")
+def me(user = Depends(get_current_user)):
+    return user
+
+@router.patch("/me")
+def update_me(email: str | None = None,
+              password: str | None = None,
+              db: Session = Depends(get_db),
+              user = Depends(get_current_user)):
+
+    if email:
+        user.email = email
+    if password:
+        user.password = hash_password(password)
+
+    db.commit()
+    return {"message": "Atualizado com sucesso"}
+
+@router.delete("/me")
+def delete_me(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    db.delete(user)
+    db.commit()
+    return {"message": "Conta deletada"}
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\database.py
+========================================
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+DATABASE_URL = "sqlite:///./app.db"
+
+engine = create_engine(DATABASE_URL, echo=True)
+SessionLocal = sessionmaker(bind=engine)
+
+class Base(DeclarativeBase):
+    pass
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\deps.py
+========================================
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt
+from sqlalchemy.orm import Session
+from core.database import get_db
+from core.security import SECRET_KEY, ALGORITHM
+from repositories.user_repository import UserRepository
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    user_id = int(payload.get("sub"))
+    user = UserRepository.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(401, "Usuário inválido")
+    return user
+
+def get_current_admin(user = Depends(get_current_user)):
+    if user.role != "ADMIN":
+        raise HTTPException(403, "Acesso apenas ADMIN")
+    return user
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\core\security.py
+========================================
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import jwt
+
+SECRET_KEY = "0G7fdF4ORMat7AYdsq0sIQOEarDLlkgx"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def hash_password(password: str):
+    return pwd_context.hash(password)
+
+def verify_password(password: str, hashed: str):
+    return pwd_context.verify(password, hashed)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\models\user.py
+========================================
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, Boolean
+from core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, default="USER")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\repositories\user_repository.py
+========================================
+from sqlalchemy.orm import Session
+from models.user import User
+
+class UserRepository:
+
+    @staticmethod
+    def get_all(db: Session):
+        return db.query(User).all()
+
+    @staticmethod
+    def get_by_id(db: Session, user_id: int):
+        return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def get_by_email(db: Session, email: str):
+        return db.query(User).filter(User.email == email).first()
+
+    @staticmethod
+    def create(db: Session, user: User):
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    @staticmethod
+    def delete(db: Session, user: User):
+        db.delete(user)
+        db.commit()
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\schemas\user.py
+========================================
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    email: EmailStr | None = None
+    password: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+    
+    class Config:
+        from_attributes = True
+
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    role: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\main.py
+========================================
+from fastapi import FastAPI
+from core.database import engine, Base
+from api.v1 import auth, users, admin
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\projeto_completo.txt
+========================================
+
+
+
+
+========================================
+ARQUIVO: C:\Users\Alysson\Downloads\aai\README.md
+========================================
+# aai
+
+
+
