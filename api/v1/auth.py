@@ -10,16 +10,17 @@ from schemas import user
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/register")
-# def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-#     if UserRepository.get_by_email(db, form.username):
-#         raise HTTPException(400, "Email já existe")
+def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    if UserRepository.get_by_email(db, form.username):
+        raise HTTPException(400, "Email já existe")
 
-#     user = User(
-#         email=form.username,
-#         password=hash_password(form.password),
-#     )
-#     return UserRepository.create(db, user)@router.post("/register")
+    user = User(
+        email=form.username,
+        password=hash_password(form.password),
+    )
+    return UserRepository.create(db, user)
 
+@router.post("/register")
 def register(user: user.UserCreate, db: Session = Depends(get_db)):
     existing = UserRepository.get_by_username(db, user.username)
     if existing:
