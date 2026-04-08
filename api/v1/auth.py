@@ -9,8 +9,8 @@ from schemas import user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-@router.post("/register")
-def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@router.post("/register-form")
+def register_form(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     if UserRepository.get_by_email(db, form.username):
         raise HTTPException(400, "Email já existe")
 
@@ -22,16 +22,16 @@ def register(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(
 
 @router.post("/register")
 def register(user: user.UserCreate, db: Session = Depends(get_db)):
-    existing = UserRepository.get_by_username(db, user.username)
+    existing = UserRepository.get_by_email(db, user.email)
     if existing:
         raise HTTPException(status_code=400, detail="Usuário já existe")
 
-    new_user = UserRepository.create(
-        db=db,
-        username=user.username,
+    new_user =User(
+        email=user.email,
         password=hash_password(user.password),
-        role="USER"
+        role="USER" #ADMIN / USER
     )
+    UserRepository.create(db,new_user)
 
     return {"message": "Usuário criado com sucesso"}
 
