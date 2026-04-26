@@ -14,26 +14,18 @@ load_dotenv()
 @tool
 def youtube(video_id: str) -> str:
     """
-    Use esta ferramenta SOMENTE quando precisar buscar a transcrição
-    de um vídeo do YouTube.
+    Busca a transcrição de um vídeo do YouTube.
 
     IMPORTANTE:
-    O agente deve enviar APENAS o ID do vídeo,
-    e NÃO a URL completa.
+    O agente deve enviar somente o ID do vídeo.
 
     Exemplo correto:
-    yinSh2daMMY
+    21G-hvykfVo
 
     Exemplo errado:
-    https://www.youtube.com/watch?v=yinSh2daMMY
-
-    Entrada esperada:
-    - video_id (str): ID único do vídeo no YouTube
-
-    Saída:
-    - Texto completo da transcrição do vídeo
+    https://youtu.be/21G-hvykfVo
     """
-
+    print(f"/n/n/noioioioi")
     try:
         # Buscar transcrição do vídeo
         transcript = YouTubeTranscriptApi().fetch(
@@ -57,7 +49,7 @@ def youtube(video_id: str) -> str:
 tools = [youtube]
 
 llm = ChatOllama(
-    model="gemma3:4b-cloud",
+    model="kimi-k2.6:cloud",
     base_url=os.getenv("base_url"),
     temperature=0.7,
     client_kwargs={
@@ -65,40 +57,30 @@ llm = ChatOllama(
     },
 )
 
+llm_com_ferramentas = llm.bind_tools(tools)
+
 agent = create_agent(
     model=llm,
     tools=tools,
     system_prompt="""
-Você é um agente com acesso a ferramentas.
+Você é um assistente em português do Brasil.
 
-REGRA OBRIGATÓRIA:
+Regras obrigatórias:
 
-Se o usuário enviar link de YouTube,
+1. Nunca invente conteúdo.
+
+2. Se o usuário enviar link do YouTube,
 ou pedir resumo de vídeo,
-ou pedir análise de vídeo,
-você DEVE obrigatoriamente chamar a ferramenta youtube.
+você DEVE usar a ferramenta youtube.
 
-NUNCA responda apenas com o ID.
+3. Nunca responda apenas com o ID.
 
-NUNCA responda com a URL.
+4. Sempre use a tool youtube para obter a transcrição.
 
-Você deve usar a tool youtube passando somente o ID.
-
-Exemplo:
-
-Usuário:
-Resuma esse vídeo:
-https://youtu.be/21G-hvykfVo
-
-Você deve fazer:
-
-youtube("21G-hvykfVo")
-
-e depois responder com base na transcrição retornada.
-
-Essa regra é obrigatória.
+5. A tool recebe somente o ID do vídeo.
 """
 )
+
 
 history = []
 
