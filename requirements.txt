@@ -9,3 +9,7 @@ sqlalchemy_utils
 alembic 
 bcrypt==4.3.0
 pydantic[email]
+
+langchain_ollama
+youtube_transcript_api
+langchain
