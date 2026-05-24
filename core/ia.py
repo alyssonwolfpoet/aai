@@ -49,12 +49,12 @@ def youtube(video_id: str) -> str:
 tools = [youtube]
 
 llm = ChatOllama(
-    model="kimi-k2.6:cloud",
-    base_url=os.getenv("base_url"),
+    model="qwen3.5:9b",
+    #base_url=os.getenv("base_url"),
     temperature=0.7,
-    client_kwargs={
-        "headers": {"Authorization": f"Bearer {os.getenv('OLLAMA_KEY')}"}
-    },
+    # client_kwargs={
+    #     "headers": {"Authorization": f"Bearer {os.getenv('OLLAMA_KEY')}"}
+    # },
 )
 
 llm_com_ferramentas = llm.bind_tools(tools)
