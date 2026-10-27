@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+
+  fastapi:
+    build: .
+    container_name: fastapi_leve
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    develop:
+      watch:
+        # 1. Se alterar o código Python, sincroniza o arquivo instantaneamente para dentro do container
+        - path: .
+          target: /app
+          action: sync
+          ignore:
+            - __pycache__/
+            - .git/
+        
+        # 2. Se alterar o requirements.txt, o Docker reconstrói a imagem automaticamente
+        - path: requirements.txt
+          action: rebuild
+  
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull qwen3.5:9b && ollama pull nomic-embed-text && wait"]
+
+  streamlit:
+    build: ./steamlit
+    command: streamlit run app/main.py --server.port 8501
+    volumes:
+        - ./:/usr/src/app
+    ports:
+        - 8501:8501
+    image: yourstreamlitapp:latest
+
+volumes:
+  ollama_data:
+  fastapi:
+  streamlit:
+
+networks:
+  isolated:
+    driver: bridge
